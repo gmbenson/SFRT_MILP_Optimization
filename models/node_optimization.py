@@ -8,12 +8,12 @@ import json
 
 def optimization(nodes, arcs):
    options = {
-        "WLSACCESSID": "9a6728rf5-f620-4829-b3b7-5e01b8e667d9",
-        "WLSSECRET": "6f73eab7-cea6-4f6f-a167-510fd4aa9aa9",
-        "LICENSEID": 2544834,
+        "WLSACCESSID": "55c88bbb-cfc0-4d09-b763-e37e0d3bd302",
+        "WLSSECRET": "f21e8941-0ff2-49c2-8500-6883437c1bb2",
+        "LICENSEID": 2677447,
    }
-   #env = Env(params=options)
-   model = Model("optimal")  # create model
+   env = Env(params=options)
+   model = Model("optimal", env=env)  # create model
 
    x = model.addVars(nodes, vtype=GRB.BINARY)
 

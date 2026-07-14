@@ -4,17 +4,17 @@ import plotly.express as px
 import random
 import math
 import json
+import csv
 import pickle
 
 def optimization(nodes, arcs):
-
    options = {
-        "WLSACCESSID": "9a6728f5-f620-4829-b3b7-5e01b8e667d9",
-        "WLSSECRET": "6f73eab7-cea6-4f6f-a167-510fd4aa9aa9",
-        "LICENSEID": 2544834,
+        "WLSACCESSID": "55c88bbb-cfc0-4d09-b763-e37e0d3bd302",
+        "WLSSECRET": "f21e8941-0ff2-49c2-8500-6883437c1bb2",
+        "LICENSEID": 2677447,
    }
-   #env = Env(params=options)
-   model = Model("optimal")#,env=env)  # create model
+   env = Env(params=options)
+   model = Model("optimal",env=env)  # create model
 
    x = model.addVars(nodes, vtype=GRB.BINARY)
 
@@ -22,8 +22,8 @@ def optimization(nodes, arcs):
 
    model.setObjective(quicksum(x[i] for i in nodes.keys()), GRB.MAXIMIZE)
    model.setParam("OutputFlag", 1)
-   model.Params.TimeLimit = 21600
-   #model.Params.TimeLimit = 160
+   #model.Params.TimeLimit = 21600
+   model.Params.TimeLimit = 600
    model.update()
    model.optimize()
 
@@ -50,7 +50,7 @@ if __name__ == '__main__':
         node_dict = pickle.load(openfile)
 
     arcs = []
-    with open("../data/arc_data.pkl", 'rb') as openfile:
+    with open("../data/arc_data006.pkl", 'rb') as openfile:
         arcs = pickle.load(openfile)
 
     node_index = optimization(node_dict,arcs)
@@ -62,11 +62,14 @@ if __name__ == '__main__':
        if node_index[i] == 1.0:
            optimal_nodes.append(node_dict.get(str(i)))
 
-
+    with open('Optimal_Points_006.csv', 'w', newline="") as csvfile:
+        writer = csv.writer(csvfile, delimiter=',')
+        writer.writerows(optimal_nodes)
 
     print(node_index)
     print(optimal_nodes)
     print(len(optimal_nodes))
+    #exit()
     plot(optimal_nodes,len(optimal_nodes))
     x = []
     y = []

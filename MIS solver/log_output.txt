@@ -1,0 +1,89 @@
+
+
+=== Processing PortPy10.dcm ===
+
+
+
+[PortPy10] → grid_placement
+
+  ✓ 264 candidate processed
+Loaded 264 nodes
+Created 31362 arcs
+
+  ✓ Graph built (264 nodes, 31362 edges)
+
+Set parameter Username
+Set parameter WLSAccessID
+Set parameter WLSSecret
+Set parameter LicenseID to value 2677447
+Academic license 2677447 - for non-commercial use only - registered to gr___@ou.edu
+  ✓ Arc MIS size: 9, with gap 0.0 for 0.317000150680542 seconds
+Set parameter Username
+Set parameter WLSAccessID
+Set parameter WLSSecret
+Set parameter LicenseID to value 2677447
+Academic license 2677447 - for non-commercial use only - registered to gr___@ou.edu
+Set parameter TimeLimit to value 600
+  ✓ Node MIS size: 9, with gap 0.0 for 0.8080000877380371 seconds
+Set parameter Username
+Set parameter WLSAccessID
+Set parameter WLSSecret
+Set parameter LicenseID to value 2677447
+Academic license 2677447 - for non-commercial use only - registered to gr___@ou.edu
+  ✓ Adjacency MIS size: 9, with gap 20.966310586901223 for 600.0299999713898 seconds
+
+
+[PortPy10] → relative_grid_placement
+
+  ✓ 314 candidate processed
+Loaded 314 nodes
+Created 42536 arcs
+
+  ✓ Graph built (314 nodes, 42536 edges)
+
+Set parameter Username
+Set parameter WLSAccessID
+Set parameter WLSSecret
+Set parameter LicenseID to value 2677447
+Academic license 2677447 - for non-commercial use only - registered to gr___@ou.edu
+  ✓ Arc MIS size: 9, with gap 0.0 for 1.0529999732971191 seconds
+Set parameter Username
+Set parameter WLSAccessID
+Set parameter WLSSecret
+Set parameter LicenseID to value 2677447
+Academic license 2677447 - for non-commercial use only - registered to gr___@ou.edu
+Set parameter TimeLimit to value 600
+  ✓ Node MIS size: 9, with gap 0.0 for 2.4089999198913574 seconds
+Set parameter Username
+Set parameter WLSAccessID
+Set parameter WLSSecret
+Set parameter LicenseID to value 2677447
+Academic license 2677447 - for non-commercial use only - registered to gr___@ou.edu
+  ✓ Adjacency MIS size: 9, with gap 13.48025729621107 for 600.0320000648499 seconds
+
+
+[PortPy10] → triangle_grid_placement
+
+  ✓ 308 candidate processed
+Loaded 308 nodes
+Created 44384 arcs
+
+  ✓ Graph built (308 nodes, 44384 edges)
+
+Set parameter Username
+Set parameter WLSAccessID
+Set parameter WLSSecret
+Set parameter LicenseID to value 2677447
+Traceback (most recent call last):
+  File "C:\Users\Grant\PycharmProjects\SFRT_Optimization\MIS solver\run_me.py", line 123, in <module>
+    main()
+  File "C:\Users\Grant\PycharmProjects\SFRT_Optimization\MIS solver\run_me.py", line 118, in main
+    process_patient(fname)
+  File "C:\Users\Grant\PycharmProjects\SFRT_Optimization\MIS solver\run_me.py", line 91, in process_patient
+    optimal_nodes_arc, mis_size_arc, gap, rt = optimize_arc_mis(
+                                               ^^^^^^^^^^^^^^^^^
+  File "C:\Users\Grant\PycharmProjects\SFRT_Optimization\MIS solver\models\arc_optimization.py", line 29, in optimize_arc_mis
+    env = Env(params=options)
+          ^^^^^^^^^^^^^^^^^^^
+  File "src\\gurobipy\\env.pxi", line 70, in gurobipy.Env.__init__
+gurobipy.GurobiError: Overage for too long, 17 active sessions and over the baseline for 32 minutes
