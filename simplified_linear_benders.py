@@ -2,6 +2,7 @@ from gurobipy import *
 import numpy as np
 import pandas as pd
 import pickle
+import csv
 
 
 def presolve(nodes, arcs, time_limit):
@@ -32,197 +33,147 @@ def presolve(nodes, arcs, time_limit):
         print("MIS found with size " + str(mis_size))
 
     return mis_size, mis
-
-def dual(x, Voxels, A, D, Beamlets, Struct_list, S_dict, max_constrs = {"dummy" : 1000000}, min_constrs = {"dummy": -1000000}):
-
-    # Create the optimization model
+def dual(x_vals, nodes, arcs, Voxels, A, D, Beamlets, Struct_list, S_dict,
+         max_constrs={"dummy": 1000000}, min_constrs={"dummy": -1000000}):
     model = Model('dual_problem')
-    Voxels = [i for i in range(Voxels)]
-    Beamlets = [i for i in range(Beamlets)]
-    x = np.array(x)
+    x_vals = np.array(x_vals)
 
-    #Struct_list.append("dummy")
-    #S_dict["dummy"] = [0]
+    # Define variables using Gurobi variables
+    x = model.addVars(nodes, vtype=GRB.CONTINUOUS, name="x")
+    y = model.addVars(Beamlets, vtype=GRB.CONTINUOUS, name="y")
+    z = model.addVars(Voxels, vtype=GRB.CONTINUOUS, name="z")
+
+    # Set objective function to maximize the sum of z
+    model.setObjective(-10*sum(x_vals) + 1000 + sum(z[i] for i in range(Voxels)), GRB.MINIMIZE)
+
+    count = 0
+    for key, val in nodes.items():
+        model.addConstr(x[key] == x_vals[count])
+        count += 1
+
+    # Store delta constraints in a dict for easier tracking
+    delta_constrs = {}
+    for (i, j) in arcs:
+        delta_constrs[(i, j)] = model.addConstr(x[i] + x[j] <= 1)
+
+    # Constraints for pi_plus and pi_minus
+    pi_plus_constrs = []
+    pi_minus_constrs = []
+    for v in range(Voxels):
+        # Define the constraints for pi_plus and pi_minus
+        Ay = sum(A[v,b] * y[b] for b in range(Beamlets))
+        Dx = sum(D[v,n] * x[n] for n in nodes)
+        pi_plus_constr = model.addConstr(z[v] >= Ay - Dx)    ##sum(A[v, k] * y[k] for k in range(Beamlets)) - sum(D[v, k] * x[k] for k in range(len(x_vals))))
+        pi_minus_constr = model.addConstr(z[v] >= -Ay + Dx)  #-(sum(A[v, k] * y[k] for k in range(Beamlets)) - sum(D[v, k] * x[k] for k in range(len(x_vals)))))
+
+        pi_plus_constrs.append(pi_plus_constr)
+        pi_minus_constrs.append(pi_minus_constr)
 
 
-    # Create variables
-    pi_plus = model.addVars(Voxels, vtype=GRB.CONTINUOUS, name="pi_plus", lb=0)
-    pi_minus = model.addVars(Voxels, vtype=GRB.CONTINUOUS, name="pi_minus", lb=0)
-    mu_u = model.addVars(max_constrs, vtype=GRB.CONTINUOUS, name="mu_u", lb=0)
-    mu_l = model.addVars(min_constrs, vtype=GRB.CONTINUOUS, name="mu_l", lb=0)
 
-    # Objective function
-    obj = LinExpr()
-
-    # Summation over v for pi_plus and pi_minus
-    for v in Voxels:
-        obj += -pi_plus[v] * (D[v, :] @ x) + pi_minus[v] * (D[v, :] @ x)
-
-    # Summation over s for mu, nu, gamma, delta
-    for u, maxi in max_constrs.items():
-        obj += -mu_u[u] * maxi
-
-    for l, mini in min_constrs.items():
-        obj += mu_l[l] * mini
-
-    model.setObjective(obj, GRB.MAXIMIZE)
-
-    # Constraints
-    # Constraint (1): pi_plus + pi_minus <= 1 for all v in V
-    for v in Voxels:
-        model.addConstr(pi_plus[v] + pi_minus[v] <= 1)
-
-    # Constraint (2): The sum over v and s
-    for b in Beamlets:
-        lhs = LinExpr()
-        for v in Voxels:
-            lhs += (-A[v, b] * pi_plus[v] + A[v, b] * pi_minus[v])
-        for s in max_constrs:
-            for v in S_dict[s]:
-                lhs += A[v, b] * -mu_u[s]
-        for s in min_constrs:
-            for v in S_dict[s]:
-                lhs += A[v, b] * mu_l[s]
-        model.addConstr(lhs <= 0)
-
-    model.setParam("Outputflag", 0)
+    # Optimize the model
+    model.setParam("OutputFlag", 0)
     model.optimize()
+
     if model.status == GRB.OPTIMAL:
+        # Extract dual values in the format you requested
+        pi_plus_duals = {f"pi_plus_{v}": pi_plus_constrs[v].Pi for v in range(Voxels)}
+        pi_minus_duals = {f"pi_minus_{v}": pi_minus_constrs[v].Pi for v in range(Voxels)}
+        delta_duals = {f"delta_{i}_{j}": [(i, j), delta_constrs[(i, j)].Pi] for (i, j) in arcs}
+
+        with open('variable_values.csv', mode='w', newline='') as file:
+            writer = csv.writer(file)
+
+            for i, var in z.items():
+                writer.writerow([i, var.X])
+
+        # Return the dual variables in the format you requested
         return (
-            {k: pi_plus[k].X for k in pi_plus},
-            {k: pi_minus[k].X for k in pi_minus},
-            {k: mu_u[k].X for k in mu_u},
-            {k: mu_l[k].X for k in mu_l},
-            model.ObjVal,
-            "optimal"
+            pi_plus_duals,  # pi_plus duals
+            pi_minus_duals,  # pi_minus duals
+            delta_duals,  # delta duals
+            model.ObjVal,  # Objective value
+            "optimal"  # Status
         )
     elif model.status == GRB.UNBOUNDED:
-        print("Dual is unbounded — extracting extreme ray for feasibility cut...")
-
-        # Extract unbounded ray
-        ray_pi_plus = {k: pi_plus[k].UnbdRay for k in pi_plus}
-        ray_pi_minus = {k: pi_minus[k].UnbdRay for k in pi_minus}
-        ray_mu_u = {k: mu_u[k].UnbdRay for k in mu_u}
-        ray_mu_l = {k: mu_l[k].UnbdRay for k in mu_l}
-
-        return ray_pi_plus, ray_pi_minus, ray_mu_u, ray_mu_l, None, "unbounded"
-
+        raise Exception("crap unbounded")
+    elif model.status == GRB.INFEASIBLE:
+        raise Exception("crap infeasible")
     else:
-        raise Exception("dual problem not solved correctly")
-def build_feasibility_cut(ray_pi_plus, ray_pi_minus, ray_mu_u, ray_mu_l, x_vals, D, max_constrs, min_constrs):
-    cut_expr = LinExpr()  # Initialize the linear expression for the cut
-    rhs_violation = 0  # This will be the constant part of the cut
-
-    # Loop over all x variables (nodes)
-    for i in range(len(x_vals)):
-        coeff = 0
-        # Loop over all voxels (rows in D matrix)
-        for v in range(D.shape[0]):
-            coeff += (-ray_pi_plus[v] + ray_pi_minus[v]) * D[v, i]  # Interaction of dual variables with x[i] via D
-
-        # Contributions from max constraints
-        for s in max_constrs:
-            if s in ray_mu_u:  # Ensure the constraint exists in the dictionary
-                for v in voxel_dict[s]:  # Look up max constraints based on voxel dictionary
-                    coeff += -ray_mu_u[s] * D[v, i]  # Max constraint contribution
-
-        # Contributions from min constraints
-        for s in min_constrs:
-            if s in ray_mu_l:  # Ensure the constraint exists in the dictionary
-                for v in voxel_dict[s]:  # Look up min constraints based on voxel dictionary
-                    coeff += ray_mu_l[s] * D[v, i]  # Min constraint contribution
-
-        cut_expr += coeff * x_vals[i]  # Add to the cut expression
-
-    # Right-hand side violation (constant part of the cut)
-    rhs_violation = 0
-    for v in range(D.shape[0]):
-        dose = sum(D[v, i] * x_vals[i] for i in range(len(x_vals)))  # Compute dose for voxel v
-        rhs_violation += (-ray_pi_plus[v] + ray_pi_minus[v]) * dose  # Contributions from dual variables
-
-    for s, max_val in max_constrs.items():
-        if s in ray_mu_u:
-            rhs_violation += -ray_mu_u[s] * max_val  # Contributions from max constraints
-
-    for s, min_val in min_constrs.items():
-        if s in ray_mu_l:
-            rhs_violation += ray_mu_l[s] * min_val  # Contributions from min constraints
-
-    return cut_expr, rhs_violation  # Return the cut expression and its constant
+        raise Exception("Dual problem not solved correctly.")
 
 
 
-def master(cuts, feas_cuts, nodes, arcs, voxels, D, pi_plus, pi_minus, mu_u, mu_l, max_constrs, min_constrs, optimality_cut): #= {"dummy" : 1000000}, min_constrs = {"dummy": -1000000}):
+def master(cuts, feas_cuts, nodes, arcs, voxels, D, pi_plus, pi_minus, delta,
+           max_constrs, min_constrs, optimality_cut):
     model = Model("master problem")
 
-    voxels = [i for i in range(voxels)]
-
-    x = model.addVars(len(nodes), vtype=GRB.BINARY, name = "x")
-    theta = model.addVar( vtype=GRB.CONTINUOUS, name = "theta")
+    x = model.addVars(nodes, vtype=GRB.BINARY, name="x")
+    theta = model.addVar(vtype=GRB.CONTINUOUS, name="theta")
     l = 10
-    model.setObjective(- l * x.sum() + theta, GRB.MINIMIZE)
+    model.setObjective(-l * x.sum() + theta + 1000, GRB.MINIMIZE)
 
-    model.addConstrs(x[i] + x[j] <= 1 for (i,j) in arcs)
+    # Pairwise constraints
+    model.addConstrs(x[i] + x[j] <= 1 for (i, j) in arcs)
+    val = 0
+    val = LinExpr()
+
+    count = 0
+
     if optimality_cut:
-        val = LinExpr()
+        # π terms (pi_plus and pi_minus)
+        for v in range(voxels):
+            val += (-pi_plus[f"pi_plus_{v}"] + pi_minus[f"pi_minus_{v}"]) * sum(D[v, i] * x[i] for i in nodes)
+            count +=1
 
-        # Summation over v for pi_plus and pi_minus
-        for v in voxels:
-            for i in range(len(nodes)):
-                val += (-pi_plus[v] + pi_minus[v]) * D[v, i] * x[i]
 
-        # Summation over s for mu, nu, gamma, delta
-        for u, maxi in max_constrs.items():
-            val += -mu_u[u] * maxi
+        # δ (delta constraints for adjacency)
+        for s, stuff in delta.items():
+            (i,j), dual_val = stuff
+            val += dual_val * (x[i] + x[j] - 1)
+            count += 1
 
-        for l, mini in min_constrs.items():
-            val += mu_l[l] * mini
         model.addConstr(theta >= val)
+
     else:
-        val = LinExpr()
-        raise Exception("no optimality cut made")
+        raise Exception("No optimality cut made")
 
-    if cuts:
-        for cut_data, const in cuts:
-            cut_expr = LinExpr()
-            for idx, coeff in cut_data:
-                cut_expr += coeff * x[idx]
-            model.addConstr(theta >= cut_expr + const)
-
-    if feas_cuts:
-        for cut_expr, const in feas_cuts:
-            model.addConstr(0 >= cut_expr + const)
+    # Add lazy optimality cuts (from previous iterations)
+    for cut_data, const in cuts:
+        cut_expr = LinExpr()
+        for idx, coeff in cut_data:
+            cut_expr += coeff * x[idx]
+        model.addConstr(theta >= cut_expr + const)
 
     print(f"cut len: {len(cuts)}")
 
-    model.addConstr(theta >= -1000000000)
+    if len(cuts) == 10:
+        print("hi")
 
+    model.addConstr(theta >= -1000000000)  # Avoid unbounded theta
 
     model.setParam("OutputFlag", 0)
     model.optimize()
 
     if model.status == GRB.OPTIMAL or model.status == GRB.TIME_LIMIT:
-        mis = [x[i].X for i in range(len(nodes))]
-        mis = np.array(mis)
+        mis = np.array([x[i].X for i in nodes])
 
+        # Extract current optimality cut
         cut_data = []
         cut_constant = 0
-
-        # Safe access: iterate over all terms in val
         for i in range(val.size()):
             var = val.getVar(i)
             coeff = val.getCoeff(i)
-
-            # Only keep x-variable terms in the cut
             if var.VarName.startswith("x"):
-                index = int(var.VarName.split('[')[1].split(']')[0])  # x[5] → 5
+                index = int(var.VarName.split("[")[1].split("]")[0])
                 cut_data.append((index, coeff))
             else:
-                cut_constant += coeff * var.X  # fixed value from dual variables
+                cut_constant += coeff * var.X  # Evaluated constant
 
         return mis, model.objVal, (cut_data, cut_constant)
+
     if model.status == GRB.UNBOUNDED:
-        raise Exception("master unbounded")
+        raise Exception("Master problem is unbounded")
 
 
 
@@ -304,7 +255,7 @@ def create_adjacency_matrix(grid_size=10):
 def load_toy_model():
     df = pd.read_excel(r"C:\Users\Grant\Downloads\Toy_Model.xlsx")
     df = df.transpose()
-    df = df.values.tolist()[:10]
+    df = df.values.tolist()
     voxels = range(len(df[0]))
     A = []
     for i in range(len(df)):
@@ -315,37 +266,41 @@ def load_toy_model():
     D = create_adjacency_matrix()
 
     nodes = {}
-    for i in range(len(df[0])):
-        nodes[i] = (0,0,0)
+    for i in range(7):
+        for j in range(7):
+            nodes[(i+ 3)+ 10* (j+3)] = (0,0,0)
     arcs = []
     arc_matrix = create_arc_matrix()
     for i in range(len(arc_matrix)):
         for j in range(len(arc_matrix[j])):
             if arc_matrix[i][j] == 1 and i != j:
                 arcs.extend([(i,j)])
+    new_arcs = []
+    for (i,j) in arcs:
+        if i in nodes.keys() and j in nodes.keys():
+            new_arcs.append((i,j))
     A = np.array(df)
     A = A.transpose()
     D = np.array(D)*10
 
-    return A, D, nodes, arcs
+    return A, D, nodes, new_arcs
 
 A, D, nodes, arcs = load_toy_model()
-roi_list = ["max", "avg", "dvh"]
-voxel_dict = {"max" : [1,2,3,4,5,11,12,13,14], "avg" : [9,10,19,20,70],"dvh" : [70,71,72,73,74,80,81,82,83,98,97,96,95,99]}
-max_constrs = {"max":100}
-min_constrs = {"dvh": 5}
+
+roi_list = ["light", "plum", "tumor"]
+voxel_dict = {"light" : [1,2,3,11,12,13,21,22,23,31,32,33,41,42,43,51,52,53,61,62,63], "plum" : [91,81,71,92,93,82,83,72,73],"tumor" : [88,87,79,78,77,76,75,69,68,67,66,65,64, 59,58,57,56,55, 49,48,47,46, 88, 89,94,95,96,97,98,99]}
+max_constrs = {"light":7, "plum": 5}
+min_constrs = {"light": 4, "tumor": 4}
 avg_constrs = {"avg":100, "max":100}
 dvh_constrs = {"dvh":[.3,3]}
 
 
 
-TOL = 1e-4  # convergence tolerance
-MAX_ITERS = 50
-iteration = 0
+
 feasibility_cuts = []  # List to store feasibility cuts]
 optimality_cuts = []
 TOL = 1e-4  # convergence tolerance
-MAX_ITERS = 50
+MAX_ITERS = 300
 iteration = 0
 
 cuts = []
@@ -356,7 +311,7 @@ mis_size, mis = presolve(nodes,arcs, 60)
 
 feasibility_cuts = []
 
-pi_plus, pi_minus, mu_u, mu_l, dual_obj, status = dual(x=mis, Voxels=A.shape[0], A=A, D=D, Beamlets=A.shape[1], Struct_list=roi_list, S_dict=voxel_dict, max_constrs=max_constrs, min_constrs=min_constrs)
+pi_plus, pi_minus, delta, dual_obj, status = dual(x_vals=mis,arcs = arcs,nodes=nodes, Voxels=A.shape[0], A=A, D=D, Beamlets=A.shape[1], Struct_list=roi_list, S_dict=voxel_dict, max_constrs=max_constrs, min_constrs=min_constrs)
 optimality_cut = True
 
 if status == "unbounded":
@@ -368,31 +323,29 @@ if status == "unbounded":
 elif status == "infeasible":
     print("Dual problem is infeasible, skipping feasibility cut generation.")
 
-
+l = 10
 
 while gap != TOL and iteration <= MAX_ITERS:
     iteration += 1
 
     # Call the master problem with the current cuts
     x_vals, master_obj, cut = master(
-        cuts=cuts, feas_cuts= feasibility_cuts,
-        nodes=nodes, arcs=arcs, voxels=A.shape[0], D=D,
-        pi_plus=pi_plus, pi_minus=pi_minus, mu_u=mu_u, mu_l=mu_l,
-        max_constrs=max_constrs, min_constrs=min_constrs, optimality_cut = optimality_cut
+        cuts=cuts, feas_cuts=feasibility_cuts, nodes=nodes, arcs=arcs, voxels=A.shape[0], D=D,
+        pi_plus=pi_plus, pi_minus=pi_minus, delta=delta,
+        max_constrs=max_constrs, min_constrs=min_constrs, optimality_cut=optimality_cut
     )
 
     cuts.append(cut)
 
     # Call the dual problem to get the dual variables
-    pi_plus, pi_minus, mu_u, mu_l, dual_obj, status = dual(
-        x=x_vals, Voxels=A.shape[0], A=A, D=D, Beamlets=A.shape[1],
-        Struct_list=roi_list, S_dict=voxel_dict,
-        max_constrs=max_constrs, min_constrs=min_constrs
+    pi_plus, pi_minus, delta, dual_obj, status = dual(
+        x_vals=x_vals, nodes = nodes, arcs=arcs, Voxels=A.shape[0], A=A, D=D, Beamlets=A.shape[1],
+        Struct_list=roi_list, S_dict=voxel_dict, max_constrs=max_constrs, min_constrs=min_constrs
     )
 
     if status == "unbounded":
         # Dual is unbounded, generate feasibility cut
-        cut_data, cut_constant = build_feasibility_cut(pi_plus, pi_minus, mu_u, mu_l, x_vals, D, max_constrs, min_constrs)
+        cut_data, cut_constant = build_feasibility_cut(pi_plus, pi_minus,  x_vals, D, max_constrs, min_constrs)
         feasibility_cuts.append((cut_data, cut_constant))
         optimality_cut = False
         print(f"adding extreme ray cut")
@@ -402,8 +355,7 @@ while gap != TOL and iteration <= MAX_ITERS:
         break  # Optionally, handle infeasibility gracefully (e.g., stop the loop)
 
     else:
-        # Feasible dual solution, compute gap
-        gap = (master_obj - dual_obj) / (abs(master_obj) + 1e-6)
+        gap = -1* (master_obj - dual_obj) / (abs(master_obj) + 1e-6)
         optimality_cut = True
     print(f"Master Obj: {master_obj}")
     print(f"Dual obj: {dual_obj}")
