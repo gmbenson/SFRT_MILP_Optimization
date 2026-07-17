@@ -24,7 +24,7 @@ class Tee:
 logfile = open("log_output.txt", "w", encoding="utf-8", buffering=1)
 tee = Tee(sys.__stdout__, logfile)  # sys.__stdout__ is the original console
 sys.stdout = tee
-sys.stderr = tee  # optional: also log errors
+sys.stderr = tee
 
 
 

@@ -3,21 +3,7 @@ from gurobipy import GRB
 import numpy as np
 
 def benders_decomposition(A, B, b, c, f, x_bounds, y_bounds, max_iters=50, tol=1e-6):
-    """
-    Benders Decomposition for min c^T x + f^T y s.t. A x + B y >= b
 
-    Inputs:
-        A, B: constraint matrices (numpy arrays)
-        b: RHS vector (numpy array)
-        c, f: objective vectors (numpy arrays)
-        x_bounds: list of (lb, ub) for each x variable
-        y_bounds: list of (lb, ub) for each y variable
-        max_iters: maximum number of iterations
-        tol: tolerance for convergence
-
-    Returns:
-        Optimal x and y, and objective value
-    """
     m, nx = A.shape
     _, ny = B.shape
 
